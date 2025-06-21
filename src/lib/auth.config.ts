@@ -143,5 +143,5 @@ export const authOptions: NextAuthOptions = {
     error: "/login", // Redirect to login page on error
   },
   secret: NEXTAUTH_SECRET,
-  debug: process.env.NODE_ENV === "development",
+  debug: process.env.NEXTAUTH_DEBUG === "true",
 };
