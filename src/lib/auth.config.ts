@@ -6,15 +6,8 @@ import { PrismaAdapter } from "@next-auth/prisma-adapter";
 import { prisma } from "@/lib/prisma";
 import { comparePassword } from "@/lib/auth";
 
-// Ensure environment variables are available
-const {
-  NEXTAUTH_SECRET,
-  GOOGLE_CLIENT_ID,
-  GOOGLE_CLIENT_SECRET,
-} = process.env;
-
 export const authOptions: NextAuthOptions = {
-  ...(process.env.DATABASE_URL ? { adapter: PrismaAdapter(prisma) } : {}),
+  adapter: PrismaAdapter(prisma),
   providers: [
     CredentialsProvider({
       id: "credentials",
@@ -25,7 +18,7 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) {
-          throw new Error("Email and password are required");
+          return null;
         }
 
         try {
@@ -37,7 +30,7 @@ export const authOptions: NextAuthOptions = {
           });
 
           if (!user || !user.password) {
-            throw new Error("Invalid email or password");
+            return null;
           }
 
           // Compare password
@@ -47,27 +40,29 @@ export const authOptions: NextAuthOptions = {
           );
 
           if (!isPasswordValid) {
-            throw new Error("Invalid email or password");
+            return null;
           }
 
           // Return user object (password excluded)
           const { password, ...userWithoutPassword } = user;
           return {
             ...userWithoutPassword,
-            name: user.name ?? '',
-            image: user.image ?? '',
-            emailVerified: user.emailVerified ?? undefined,
+            name: user.name || '',
+            image: user.image || '',
+            emailVerified: user.emailVerified || null,
           };
         } catch (error) {
           console.error("Authentication error:", error);
-          throw new Error("Authentication failed");
+          return null;
         }
       },
     }),
-    ...(GOOGLE_CLIENT_ID && GOOGLE_CLIENT_SECRET ? [
+    
+    // Only include Google provider if credentials are available
+    ...(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET ? [
       GoogleProvider({
-        clientId: GOOGLE_CLIENT_ID,
-        clientSecret: GOOGLE_CLIENT_SECRET,
+        clientId: process.env.GOOGLE_CLIENT_ID,
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET,
         authorization: {
           params: {
             prompt: "consent",
@@ -78,10 +73,12 @@ export const authOptions: NextAuthOptions = {
       })
     ] : []),
   ],
+  
   session: {
     strategy: "jwt",
     maxAge: 30 * 24 * 60 * 60, // 30 days
   },
+  
   callbacks: {
     async jwt({ token, user, account }) {
       // Initial sign in
@@ -99,6 +96,7 @@ export const authOptions: NextAuthOptions = {
       
       return token;
     },
+    
     async session({ session, token }) {
       if (token) {
         session.user.id = token.id as string;
@@ -108,6 +106,7 @@ export const authOptions: NextAuthOptions = {
       }
       return session;
     },
+    
     async signIn({ user, account, profile }) {
       // Allow credentials login
       if (account?.provider === "credentials") {
@@ -122,26 +121,22 @@ export const authOptions: NextAuthOptions = {
             where: { email: profile.email.toLowerCase() },
           });
 
-          if (existingUser) {
-            // User exists, allow sign in
-            return true;
-          } else {
-            // New user, will be created by PrismaAdapter
-            return true;
-          }
+          return true; // Always allow sign in for Google
         } catch (error) {
           console.error("Sign in error:", error);
-          return false;
+          return true; // Allow sign in even on error
         }
       }
       
       return true;
     },
   },
+  
   pages: {
     signIn: "/login",
-    error: "/login", // Redirect to login page on error
+    error: "/login",
   },
-  secret: NEXTAUTH_SECRET,
-  debug: process.env.NEXTAUTH_DEBUG === "true",
+  
+  secret: process.env.NEXTAUTH_SECRET,
+  debug: false, // Disable debug in production
 };
